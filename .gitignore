@@ -1,0 +1,27 @@
+# Build files
+build/
+dist/
+*.exe
+*.spec
+
+# Database
+*.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
