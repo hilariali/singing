@@ -400,12 +400,20 @@ def fetch_chinese_lyrics(artist, track, video_title):
     print(f"[CHINESE] Searching: artist='{artist}', track='{track}'")
     
     try:
-        # Try NetEase
+        # Try NetEase first (most comprehensive Chinese library)
         result = search_lyrics_netease(artist, track)
         if result and result.get('lyrics'):
             return result
     except Exception as e:
         print(f"[CHINESE] NetEase error: {e}")
+    
+    try:
+        # Try Genius (works for many Chinese songs too)
+        result = search_lyrics_genius(artist, track)
+        if result and result.get('lyrics'):
+            return result
+    except Exception as e:
+        print(f"[CHINESE] Genius error: {e}")
     
     try:
         # Try Kugou
@@ -425,7 +433,7 @@ def fetch_chinese_lyrics(artist, track, video_title):
             pass
         
         try:
-            result = search_lyrics_kugou('', track)
+            result = search_lyrics_genius('', track)
             if result and result.get('lyrics'):
                 return result
         except:
@@ -438,17 +446,126 @@ def fetch_english_lyrics(artist, track, video_title):
     """Fetch English lyrics from multiple sources, return plain text."""
     print(f"[ENGLISH] Searching: artist='{artist}', track='{track}'")
     
-    # Try LRCLIB
+    # Try LRCLIB first (usually most reliable)
     result = search_lyrics_lrclib_simple(artist, track, video_title)
     if result and result.get('lyrics'):
         return result
     
-    # Try lyrics.ovh
+    # Try Genius API
+    result = search_lyrics_genius(artist, track)
+    if result and result.get('lyrics'):
+        return result
+    
+    # Try lyrics.ovh as fallback
     result = search_lyrics_ovh_simple(artist, track)
     if result and result.get('lyrics'):
         return result
     
     return None
+
+
+def search_lyrics_genius(artist, track):
+    """Search for lyrics using Genius API."""
+    try:
+        if not track:
+            return None
+        
+        search_term = f"{artist} {track}".strip() if artist else track
+        print(f"[GENIUS] Searching: '{search_term}'")
+        
+        # Genius search API (public, no auth needed)
+        search_url = "https://genius.com/api/search/multi"
+        params = {'q': search_term}
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        response = requests.get(search_url, params=params, headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"[GENIUS] Search failed: {response.status_code}")
+            return None
+        
+        data = response.json()
+        sections = data.get('response', {}).get('sections', [])
+        
+        # Find song section
+        for section in sections:
+            if section.get('type') == 'song':
+                hits = section.get('hits', [])
+                if hits:
+                    song = hits[0].get('result', {})
+                    song_url = song.get('url', '')
+                    song_title = song.get('title', track)
+                    song_artist = song.get('primary_artist', {}).get('name', artist)
+                    
+                    if song_url:
+                        # Fetch lyrics from page
+                        lyrics = fetch_genius_lyrics_page(song_url)
+                        if lyrics:
+                            print(f"[GENIUS] Found lyrics: {song_artist} - {song_title}")
+                            return {
+                                'lyrics': lyrics,
+                                'source': 'genius',
+                                'track': song_title,
+                                'artist': song_artist,
+                            }
+        return None
+        
+    except Exception as e:
+        print(f"[GENIUS ERROR] {e}")
+        return None
+
+
+def fetch_genius_lyrics_page(url):
+    """Fetch lyrics from a Genius song page."""
+    try:
+        import re
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            return None
+        
+        html = response.text
+        
+        # Extract lyrics from the page using regex
+        # Genius stores lyrics in data-lyrics-container divs
+        lyrics_parts = []
+        
+        # Method 1: Look for Lyrics__Container
+        pattern = r'<div[^>]*class="[^"]*Lyrics__Container[^"]*"[^>]*>(.*?)</div>'
+        matches = re.findall(pattern, html, re.DOTALL | re.IGNORECASE)
+        
+        for match in matches:
+            # Clean HTML
+            text = re.sub(r'<br\s*/?>', '\n', match)
+            text = re.sub(r'<[^>]+>', '', text)
+            text = text.strip()
+            if text:
+                lyrics_parts.append(text)
+        
+        if lyrics_parts:
+            return '\n\n'.join(lyrics_parts)
+        
+        # Method 2: Look for JSON embedded lyrics
+        pattern = r'"lyrics":\s*\{"body":\s*\{"html":\s*"([^"]+)"'
+        match = re.search(pattern, html)
+        if match:
+            lyrics_html = match.group(1)
+            lyrics_html = lyrics_html.encode().decode('unicode_escape')
+            text = re.sub(r'<br\s*/?>', '\n', lyrics_html)
+            text = re.sub(r'<[^>]+>', '', text)
+            return text.strip()
+        
+        return None
+        
+    except Exception as e:
+        print(f"[GENIUS PAGE ERROR] {e}")
+        return None
 
 
 def contains_chinese(text):
@@ -513,34 +630,48 @@ def search_lyrics_netease(artist, track):
         import json
         import re
         
-        # Search for the song
+        # Search for the song - try both original and simplified search terms
         search_term = f"{artist} {track}".strip() if artist else track
         
-        # Use the web API endpoint
-        search_url = "https://music.163.com/api/search/pc"
+        # Use the CloudMusic API endpoint (more reliable)
+        search_url = "https://music.163.com/api/search/get/web"
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://music.163.com/',
-            'Origin': 'https://music.163.com',
+            'Content-Type': 'application/x-www-form-urlencoded',
         }
         
         params = {
             's': search_term,
             'type': 1,  # 1 = songs
-            'limit': 10,
+            'limit': 15,
             'offset': 0
         }
         
         print(f"[NETEASE] Searching: '{search_term}'")
-        response = requests.post(search_url, data=params, headers=headers, timeout=5)
+        response = requests.post(search_url, data=params, headers=headers, timeout=8)
         
         if response.status_code != 200:
             print(f"[NETEASE] Search failed: {response.status_code}")
             return None
         
         data = response.json()
-        songs = data.get('result', {}).get('songs', [])
+        result = data.get('result', {})
+        if isinstance(result, str):
+            print(f"[NETEASE] Unexpected result format")
+            return None
+        songs = result.get('songs', []) if isinstance(result, dict) else []
+        
+        if not songs:
+            # Try with just track name (remove artist)
+            if artist and track:
+                params['s'] = track
+                response = requests.post(search_url, data=params, headers=headers, timeout=8)
+                if response.status_code == 200:
+                    data = response.json()
+                    result = data.get('result', {})
+                    songs = result.get('songs', []) if isinstance(result, dict) else []
         
         if not songs:
             print(f"[NETEASE] No songs found")
@@ -553,9 +684,9 @@ def search_lyrics_netease(artist, track):
             artists = song.get('artists', [])
             artist_name = artists[0].get('name', '') if artists else ''
             
-            # Get lyrics
-            lyrics_url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1"
-            lyrics_response = requests.get(lyrics_url, headers=headers, timeout=3)
+            # Get lyrics using a different endpoint
+            lyrics_url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1"
+            lyrics_response = requests.get(lyrics_url, headers=headers, timeout=5)
             
             if lyrics_response.status_code != 200:
                 continue
