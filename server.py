@@ -1403,6 +1403,124 @@ def upload_lrc():
         return jsonify({'error': str(e)}), 500
 
 
+# List of Piped API instances (alternative YouTube frontends)
+PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://pipedapi.adminforge.de',
+    'https://api.piped.yt',
+    'https://pipedapi.darkness.services',
+    'https://pipedapi.drgns.space',
+]
+
+# List of Invidious instances (another alternative)
+INVIDIOUS_INSTANCES = [
+    'https://invidious.nerdvpn.de',
+    'https://inv.nadeko.net',
+    'https://invidious.private.coffee',
+    'https://invidious.protokolla.fi',
+]
+
+
+def get_invidious_stream(video_id):
+    """Try to get stream URL from Invidious API instances."""
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            api_url = f"{instance}/api/v1/videos/{video_id}"
+            print(f"[INVIDIOUS] Trying: {instance}")
+            
+            resp = requests.get(api_url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                
+                # Get format streams (combined audio+video)
+                format_streams = data.get('formatStreams', [])
+                
+                best_stream = None
+                for stream in format_streams:
+                    # Look for 360p or 480p mp4
+                    quality = stream.get('qualityLabel', '')
+                    container = stream.get('container', '')
+                    if container == 'mp4' and ('360p' in quality or '480p' in quality):
+                        best_stream = stream
+                        break
+                    if container == 'mp4' and not best_stream:
+                        best_stream = stream
+                
+                if best_stream:
+                    print(f"[INVIDIOUS] Found stream: {best_stream.get('qualityLabel', 'unknown')}")
+                    return {
+                        'url': best_stream.get('url'),
+                        'quality': best_stream.get('qualityLabel'),
+                        'instance': instance
+                    }
+                    
+        except Exception as e:
+            print(f"[INVIDIOUS] {instance} failed: {str(e)[:50]}")
+            continue
+    
+    return None
+
+
+def get_piped_stream(video_id):
+    """Try to get stream URL from Piped API instances."""
+    for instance in PIPED_INSTANCES:
+        try:
+            api_url = f"{instance}/streams/{video_id}"
+            print(f"[PIPED] Trying: {instance}")
+            
+            resp = requests.get(api_url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            if resp.status_code == 200:
+                data = resp.json()
+                
+                # Get video streams (combined audio+video)
+                video_streams = data.get('videoStreams', [])
+                audio_streams = data.get('audioStreams', [])
+                
+                # Find a good quality mp4 stream with audio
+                best_stream = None
+                
+                # First try to find streams with both video and audio (360p or 480p preferred)
+                for stream in video_streams:
+                    if stream.get('videoOnly', True):
+                        continue  # Skip video-only streams
+                    mime = stream.get('mimeType', '')
+                    if 'video/mp4' in mime or 'video/webm' in mime:
+                        quality = stream.get('quality', '')
+                        # Prefer 360p or 480p for bandwidth
+                        if '360p' in quality or '480p' in quality:
+                            best_stream = stream
+                            break
+                        if not best_stream:
+                            best_stream = stream
+                
+                # If no combined stream, try HLS
+                hls_url = data.get('hls')
+                if hls_url and not best_stream:
+                    print(f"[PIPED] Using HLS stream")
+                    return {'url': hls_url, 'type': 'hls', 'instance': instance}
+                
+                if best_stream:
+                    print(f"[PIPED] Found stream: {best_stream.get('quality', 'unknown')}")
+                    return {
+                        'url': best_stream.get('url'),
+                        'type': 'direct',
+                        'quality': best_stream.get('quality'),
+                        'instance': instance
+                    }
+                    
+        except Exception as e:
+            print(f"[PIPED] {instance} failed: {str(e)[:50]}")
+            continue
+    
+    return None
+
+
 @app.route('/proxy_stream')
 def proxy_stream():
     """Proxy the video stream to bypass CORS."""
@@ -1410,16 +1528,17 @@ def proxy_stream():
     if not video_id:
         return "Missing video id", 400
 
-    url = f"https://www.youtube.com/watch?v={video_id}"
     print(f"--- [PROXY] Streaming: {video_id} ---")
 
     try:
-        # Try multiple player clients in case one is blocked
+        # Method 1: Try yt-dlp first (currently working with android client)
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        
         player_clients = [
-            ['tv'],
-            ['tv_embedded'],
-            ['mediaconnect'],
+            ['android'],
+            ['ios'],
             ['web'],
+            ['mweb'],
         ]
         
         info = None
@@ -1436,98 +1555,159 @@ def proxy_stream():
                     'youtube_include_hls_manifest': False,
                     'noplaylist': True,
                     'extractor_args': {'youtube': {'player_client': clients}},
-                    'user_agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-                    'socket_timeout': 30,
+                    'socket_timeout': 15,
                 }
                 
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     if info and info.get('formats'):
-                        print(f"[PROXY] Success with client: {clients}")
+                        print(f"[PROXY] yt-dlp success with client: {clients}")
                         break
             except Exception as e:
                 last_error = e
-                print(f"[PROXY] Client {clients} failed: {str(e)[:100]}")
+                print(f"[PROXY] yt-dlp client {clients} failed: {str(e)[:60]}")
                 continue
         
-        if not info or not info.get('formats'):
-            error_msg = str(last_error) if last_error else "Could not extract video info"
-            print(f"[PROXY ERROR] All clients failed: {error_msg}")
-            return f"Video extraction failed: {error_msg[:200]}", 500
+        if info and info.get('formats'):
+            # Select format 18 or 22 (legacy combined audio+video)
+            best_f = None
+            for fid in ['18', '22']:
+                best_f = next((f for f in info.get('formats', []) if f.get('format_id') == fid), None)
+                if best_f:
+                    break
 
-        # Select format 18 or 22 (legacy combined)
-        best_f = None
-        for fid in ['18', '22']:
-            best_f = next((f for f in info.get('formats', []) if f.get('format_id') == fid), None)
+            if not best_f:
+                for f in info.get('formats', []):
+                    if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                        best_f = f
+                        break
+
+            if not best_f:
+                for f in info.get('formats', []):
+                    if f.get('vcodec') != 'none':
+                        best_f = f
+                        break
+
             if best_f:
-                break
+                stream_url = best_f.get('url')
+                print(f"[PROXY] yt-dlp format: {best_f.get('format_id')} - {best_f.get('format_note', 'N/A')}")
 
-        if not best_f:
-            # Fallback to any merged mp4
-            for f in info.get('formats', []):
-                if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                    best_f = f
-                    break
+                ytdl_headers = best_f.get('http_headers', {})
+                req_headers = dict(ytdl_headers) if ytdl_headers else {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                }
+                
+                if request.headers.get('Range'):
+                    req_headers['Range'] = request.headers.get('Range')
 
-        if not best_f:
-            # Last resort: any format with video
-            for f in info.get('formats', []):
-                if f.get('vcodec') != 'none':
-                    best_f = f
-                    break
+                req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
+                print(f"[PROXY] yt-dlp response status: {req.status_code}")
+                
+                if req.status_code in [200, 206]:
+                    response_headers = {
+                        'Content-Type': 'video/mp4',
+                        'Accept-Ranges': 'bytes',
+                        'Access-Control-Allow-Origin': '*',
+                        'Cache-Control': 'no-cache'
+                    }
 
-        if not best_f:
-            print("[PROXY ERROR] No compatible format found")
-            return "No compatible format found", 404
+                    if 'Content-Range' in req.headers:
+                        response_headers['Content-Range'] = req.headers['Content-Range']
+                    if 'Content-Length' in req.headers:
+                        response_headers['Content-Length'] = req.headers['Content-Length']
 
-        stream_url = best_f.get('url')
-        print(f"[PROXY] Format: {best_f.get('format_id')} - {best_f.get('format_note', 'N/A')}")
+                    def generate():
+                        for chunk in req.iter_content(chunk_size=512 * 1024):
+                            yield chunk
 
-        # Get http_headers from yt-dlp - these are REQUIRED for YouTube
-        ytdl_headers = best_f.get('http_headers', {})
+                    return Response(generate(), status=req.status_code, headers=response_headers)
         
-        # Use the exact headers from yt-dlp
-        req_headers = {}
-        for key, value in ytdl_headers.items():
-            req_headers[key] = value
+        # Method 2: Try Piped API as fallback
+        print("[PROXY] yt-dlp failed, trying Piped...")
+        piped_result = get_piped_stream(video_id)
         
-        # Fallback if no headers provided
-        if not req_headers:
+        if piped_result and piped_result.get('url'):
+            stream_url = piped_result['url']
+            print(f"[PROXY] Using Piped stream from {piped_result.get('instance', 'unknown')}")
+            
+            # For HLS streams, redirect directly
+            if piped_result.get('type') == 'hls':
+                return redirect(stream_url)
+            
+            # For direct streams, proxy with proper headers
             req_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'en-us,en;q=0.5',
-                'Sec-Fetch-Mode': 'navigate',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Referer': 'https://piped.video/',
             }
+            
+            if request.headers.get('Range'):
+                req_headers['Range'] = request.headers.get('Range')
+            
+            req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
+            print(f"[PROXY] Piped response status: {req.status_code}")
+            
+            if req.status_code in [200, 206]:
+                response_headers = {
+                    'Content-Type': req.headers.get('Content-Type', 'video/mp4'),
+                    'Accept-Ranges': 'bytes',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-cache'
+                }
+                
+                if 'Content-Range' in req.headers:
+                    response_headers['Content-Range'] = req.headers['Content-Range']
+                if 'Content-Length' in req.headers:
+                    response_headers['Content-Length'] = req.headers['Content-Length']
+                
+                def generate():
+                    for chunk in req.iter_content(chunk_size=512 * 1024):
+                        yield chunk
+                
+                return Response(generate(), status=req.status_code, headers=response_headers)
         
-        # Add range header if provided by client
-        if request.headers.get('Range'):
-            req_headers['Range'] = request.headers.get('Range')
-
-        print(f"[PROXY] Using headers: {list(req_headers.keys())}")
+        # Method 2: Try Invidious API
+        print("[PROXY] Piped failed, trying Invidious...")
+        invidious_result = get_invidious_stream(video_id)
         
-        req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
+        if invidious_result and invidious_result.get('url'):
+            stream_url = invidious_result['url']
+            print(f"[PROXY] Using Invidious stream from {invidious_result.get('instance', 'unknown')}")
+            
+            req_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': '*/*',
+            }
+            
+            if request.headers.get('Range'):
+                req_headers['Range'] = request.headers.get('Range')
+            
+            req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
+            print(f"[PROXY] Invidious response status: {req.status_code}")
+            
+            if req.status_code in [200, 206]:
+                response_headers = {
+                    'Content-Type': req.headers.get('Content-Type', 'video/mp4'),
+                    'Accept-Ranges': 'bytes',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'no-cache'
+                }
+                
+                if 'Content-Range' in req.headers:
+                    response_headers['Content-Range'] = req.headers['Content-Range']
+                if 'Content-Length' in req.headers:
+                    response_headers['Content-Length'] = req.headers['Content-Length']
+                
+                def generate():
+                    for chunk in req.iter_content(chunk_size=512 * 1024):
+                        yield chunk
+                
+                return Response(generate(), status=req.status_code, headers=response_headers)
         
-        print(f"[PROXY] Response status: {req.status_code}")
-
-        # Build response headers
-        response_headers = {
-            'Content-Type': 'video/mp4',
-            'Accept-Ranges': 'bytes',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache'
-        }
-
-        if 'Content-Range' in req.headers:
-            response_headers['Content-Range'] = req.headers['Content-Range']
-        if 'Content-Length' in req.headers:
-            response_headers['Content-Length'] = req.headers['Content-Length']
-
-        def generate():
-            for chunk in req.iter_content(chunk_size=1024 * 1024):
-                yield chunk
-
-        return Response(generate(), status=req.status_code, headers=response_headers)
+        # All methods failed
+        print("[PROXY ERROR] All methods failed")
+        return "Video extraction failed. YouTube may be blocking this request.", 500
 
     except Exception as e:
         import traceback
