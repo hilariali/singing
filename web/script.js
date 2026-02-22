@@ -18,8 +18,6 @@ const importBtn = document.getElementById('import-playlist-btn');
 const skipBtn = document.getElementById('skip-btn');
 const volumeSlider = document.getElementById('volume-slider');
 const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
-const playerModeBtn = document.getElementById('player-mode-btn');
-const playerModeText = document.getElementById('player-mode-text');
 
 let playlist = [];
 let currentIndex = -1;
@@ -28,41 +26,15 @@ let playRequestId = 0;
 // YouTube IFrame Player
 let ytPlayer = null;
 let ytPlayerReady = false;
-let useYouTubePlayer = true; // Use YouTube embed by default (more reliable)
+let useYouTubePlayer = true; // Use YouTube embed (required due to YouTube API restrictions)
 
-// Player mode toggle handler
-if (playerModeBtn) {
-    playerModeBtn.addEventListener('click', () => {
-        useYouTubePlayer = !useYouTubePlayer;
-        updatePlayerModeUI();
-        
-        // If currently playing, restart with new mode
-        if (currentIndex >= 0 && playlist.length > 0) {
-            playSong(currentIndex);
-        }
-    });
+// Karaoke mode is disabled - YouTube now blocks direct streaming
+// Show tooltip explaining this limitation
+if (karaokeModeSelector) {
+    karaokeModeSelector.style.opacity = '0.5';
+    karaokeModeSelector.style.pointerEvents = 'none';
+    karaokeModeSelector.title = 'Vocal removal is currently unavailable due to YouTube API restrictions';
 }
-
-function updatePlayerModeUI() {
-    if (playerModeText) {
-        playerModeText.textContent = useYouTubePlayer ? 'YouTube' : 'Karaoke';
-    }
-    if (playerModeBtn) {
-        const icon = playerModeBtn.querySelector('i');
-        if (icon) {
-            icon.className = useYouTubePlayer ? 'fab fa-youtube' : 'fas fa-microphone';
-        }
-    }
-    // Show/hide karaoke mode toggle based on player mode
-    if (karaokeModeSelector) {
-        karaokeModeSelector.style.opacity = useYouTubePlayer ? '0.5' : '1';
-        karaokeModeSelector.style.pointerEvents = useYouTubePlayer ? 'none' : 'auto';
-        karaokeModeSelector.title = useYouTubePlayer ? 'Switch to Karaoke mode to enable vocal removal' : 'Toggle vocal removal';
-    }
-}
-
-// Initialize UI state
-updatePlayerModeUI();
 
 // YouTube API callback - called automatically when API is ready
 window.onYouTubeIframeAPIReady = function() {
