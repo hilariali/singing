@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: karaoke-shen
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.4"
+    disk:
+      name: karaoke-data
+      mountPath: /data
+      sizeGB: 1

@@ -5,6 +5,7 @@ flask>=2.3.0
 flask-cors>=4.0.0
 yt-dlp>=2024.1.0
 requests>=2.31.0
+gunicorn>=21.2.0
 
 # For desktop mode (optional)
 eel>=0.16.0

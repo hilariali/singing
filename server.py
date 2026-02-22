@@ -19,7 +19,11 @@ CORS(app)
 # ============================================
 # Database Setup
 # ============================================
-DB_PATH = os.path.join(os.path.dirname(__file__), 'karaoke_lyrics.db')
+# Use /data directory on Render (persistent disk), fallback to local for development
+DATA_DIR = os.environ.get('RENDER_DISK_PATH', os.path.dirname(__file__))
+if os.path.exists('/data'):
+    DATA_DIR = '/data'
+DB_PATH = os.path.join(DATA_DIR, 'karaoke_lyrics.db')
 
 def init_db():
     """Initialize the SQLite database for caching lyrics."""
