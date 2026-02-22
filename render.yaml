@@ -1,9 +1,8 @@
 services:
   - type: web
     name: karaoke-shen
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn server:app --bind 0.0.0.0:$PORT --workers 2 --threads 4
+    runtime: docker
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.4"
