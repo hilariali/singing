@@ -27,6 +27,8 @@
       document.head.appendChild(script);
     })();
   </script>
+  <!-- YouTube IFrame API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
 </head>
 
 <body>
@@ -54,7 +56,10 @@
     <div class="main-content">
       <div class="player-section">
         <div id="video-wrapper">
-          <video id="player" controls crossorigin="anonymous" preload="auto"></video>
+          <video id="player" controls crossorigin="anonymous" preload="auto" style="display:none;"></video>
+          <div id="youtube-player-container" style="display:none;">
+            <div id="youtube-player"></div>
+          </div>
           <!-- Custom error/loading overlay could go here -->
         </div>
 

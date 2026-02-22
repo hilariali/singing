@@ -1416,10 +1416,10 @@ def proxy_stream():
     try:
         # Try multiple player clients in case one is blocked
         player_clients = [
-            ['android_embedded'],
-            ['android'],
+            ['tv'],
+            ['tv_embedded'],
+            ['mediaconnect'],
             ['web'],
-            ['ios'],
         ]
         
         info = None
@@ -1455,69 +1455,79 @@ def proxy_stream():
             print(f"[PROXY ERROR] All clients failed: {error_msg}")
             return f"Video extraction failed: {error_msg[:200]}", 500
 
-            # Select format 18 or 22 (legacy combined)
-            best_f = None
-            for fid in ['18', '22']:
-                best_f = next((f for f in info.get('formats', []) if f.get('format_id') == fid), None)
-                if best_f:
+        # Select format 18 or 22 (legacy combined)
+        best_f = None
+        for fid in ['18', '22']:
+            best_f = next((f for f in info.get('formats', []) if f.get('format_id') == fid), None)
+            if best_f:
+                break
+
+        if not best_f:
+            # Fallback to any merged mp4
+            for f in info.get('formats', []):
+                if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
+                    best_f = f
                     break
 
-            if not best_f:
-                # Fallback to any merged mp4
-                for f in info.get('formats', []):
-                    if f.get('ext') == 'mp4' and f.get('vcodec') != 'none' and f.get('acodec') != 'none':
-                        best_f = f
-                        break
+        if not best_f:
+            # Last resort: any format with video
+            for f in info.get('formats', []):
+                if f.get('vcodec') != 'none':
+                    best_f = f
+                    break
 
-            if not best_f:
-                # Last resort: any format with video
-                for f in info.get('formats', []):
-                    if f.get('vcodec') != 'none':
-                        best_f = f
-                        break
+        if not best_f:
+            print("[PROXY ERROR] No compatible format found")
+            return "No compatible format found", 404
 
-            if not best_f:
-                print("[PROXY ERROR] No compatible format found")
-                return "No compatible format found", 404
+        stream_url = best_f.get('url')
+        print(f"[PROXY] Format: {best_f.get('format_id')} - {best_f.get('format_note', 'N/A')}")
 
-            stream_url = best_f.get('url')
-            print(f"[PROXY] Format: {best_f.get('format_id')} - {best_f.get('format_note', 'N/A')}")
-
-            # Use requests to stream the content with proper headers
+        # Get http_headers from yt-dlp - these are REQUIRED for YouTube
+        ytdl_headers = best_f.get('http_headers', {})
+        
+        # Use the exact headers from yt-dlp
+        req_headers = {}
+        for key, value in ytdl_headers.items():
+            req_headers[key] = value
+        
+        # Fallback if no headers provided
+        if not req_headers:
             req_headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Origin': 'https://www.youtube.com',
-                'Referer': 'https://www.youtube.com/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Sec-Fetch-Mode': 'navigate',
             }
-            
-            # Add range header if provided
-            if request.headers.get('Range'):
-                req_headers['Range'] = request.headers.get('Range')
+        
+        # Add range header if provided by client
+        if request.headers.get('Range'):
+            req_headers['Range'] = request.headers.get('Range')
 
-            req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
-            
-            print(f"[PROXY] Response status: {req.status_code}")
+        print(f"[PROXY] Using headers: {list(req_headers.keys())}")
+        
+        req = requests.get(stream_url, headers=req_headers, stream=True, timeout=30)
+        
+        print(f"[PROXY] Response status: {req.status_code}")
 
-            # Build response headers
-            response_headers = {
-                'Content-Type': 'video/mp4',
-                'Accept-Ranges': 'bytes',
-                'Access-Control-Allow-Origin': '*',
-                'Cache-Control': 'no-cache'
-            }
+        # Build response headers
+        response_headers = {
+            'Content-Type': 'video/mp4',
+            'Accept-Ranges': 'bytes',
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-cache'
+        }
 
-            if 'Content-Range' in req.headers:
-                response_headers['Content-Range'] = req.headers['Content-Range']
-            if 'Content-Length' in req.headers:
-                response_headers['Content-Length'] = req.headers['Content-Length']
+        if 'Content-Range' in req.headers:
+            response_headers['Content-Range'] = req.headers['Content-Range']
+        if 'Content-Length' in req.headers:
+            response_headers['Content-Length'] = req.headers['Content-Length']
 
-            def generate():
-                for chunk in req.iter_content(chunk_size=1024 * 1024):
-                    yield chunk
+        def generate():
+            for chunk in req.iter_content(chunk_size=1024 * 1024):
+                yield chunk
 
-            return Response(generate(), status=req.status_code, headers=response_headers)
+        return Response(generate(), status=req.status_code, headers=response_headers)
 
     except Exception as e:
         import traceback

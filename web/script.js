@@ -1,4 +1,5 @@
 const player = document.getElementById('player');
+const youtubePlayerContainer = document.getElementById('youtube-player-container');
 const searchInput = document.getElementById('search-input');
 const searchBtn = document.getElementById('search-btn');
 const resultsSection = document.getElementById('results-section');
@@ -20,6 +21,63 @@ const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
 let playlist = [];
 let currentIndex = -1;
 let playRequestId = 0;
+
+// YouTube IFrame Player
+let ytPlayer = null;
+let ytPlayerReady = false;
+let useYouTubePlayer = true; // Use YouTube embed by default (more reliable)
+
+// YouTube API callback - called automatically when API is ready
+window.onYouTubeIframeAPIReady = function() {
+    logDebug('YouTube IFrame API Ready');
+    ytPlayerReady = true;
+};
+
+function initYouTubePlayer(videoId) {
+    return new Promise((resolve, reject) => {
+        if (ytPlayer) {
+            // Player already exists, just load new video
+            ytPlayer.loadVideoById(videoId);
+            resolve();
+            return;
+        }
+
+        // Create new player
+        ytPlayer = new YT.Player('youtube-player', {
+            height: '100%',
+            width: '100%',
+            videoId: videoId,
+            playerVars: {
+                'playsinline': 1,
+                'autoplay': 1,
+                'controls': 1,
+                'modestbranding': 1,
+                'rel': 0,
+                'fs': 1
+            },
+            events: {
+                'onReady': (event) => {
+                    logDebug('YouTube Player Ready');
+                    event.target.setVolume(volumeSlider.value);
+                    resolve();
+                },
+                'onStateChange': onYouTubePlayerStateChange,
+                'onError': (event) => {
+                    logDebug(`YouTube Player Error: ${event.data}`);
+                    reject(new Error(`YouTube error code: ${event.data}`));
+                }
+            }
+        });
+    });
+}
+
+function onYouTubePlayerStateChange(event) {
+    // YT.PlayerState: ENDED = 0, PLAYING = 1, PAUSED = 2, BUFFERING = 3, CUED = 5
+    if (event.data === YT.PlayerState.ENDED) {
+        logDebug('YouTube video ended');
+        playNext();
+    }
+}
 
 function logDebug(msg) {
     // Only console log now that the debug UI is removed
@@ -416,7 +474,12 @@ function displayResults(results) {
 
 // Volume control
 volumeSlider.addEventListener('input', (e) => {
-    player.volume = e.target.value;
+    const volume = e.target.value;
+    player.volume = volume;
+    // Also update YouTube player volume if active
+    if (ytPlayer && typeof ytPlayer.setVolume === 'function') {
+        ytPlayer.setVolume(volume * 100); // YouTube uses 0-100
+    }
 });
 
 // Skip button
@@ -431,6 +494,9 @@ clearPlaylistBtn.addEventListener('click', () => {
         currentIndex = -1;
         player.pause();
         player.removeAttribute('src');
+        if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
+            ytPlayer.stopVideo();
+        }
         nowPlayingTitle.innerText = 'No song playing';
         clearLyrics();
         renderPlaylist();
@@ -592,15 +658,64 @@ async function playSong(index) {
     nowPlayingTitle.innerText = `Now Playing: ${item.title}`;
     renderPlaylist();
 
-    // Reset player state completely
-    player.pause();
-    player.removeAttribute('src');
-    player.load();
-
     // Load lyrics for this video (pass title to speed up search)
     loadLyrics(item.id, item.title);
 
     logDebug(`Loading song: ${item.title}`);
+
+    // Use YouTube IFrame player (more reliable due to YouTube API restrictions)
+    if (useYouTubePlayer) {
+        try {
+            // Show YouTube player, hide HTML5 player
+            player.style.display = 'none';
+            player.pause();
+            player.removeAttribute('src');
+            youtubePlayerContainer.style.display = 'block';
+
+            // Wait for YouTube API to be ready
+            if (!ytPlayerReady) {
+                logDebug('Waiting for YouTube API...');
+                await new Promise(resolve => {
+                    const checkReady = setInterval(() => {
+                        if (ytPlayerReady || typeof YT !== 'undefined' && YT.Player) {
+                            ytPlayerReady = true;
+                            clearInterval(checkReady);
+                            resolve();
+                        }
+                    }, 100);
+                    setTimeout(() => {
+                        clearInterval(checkReady);
+                        resolve();
+                    }, 5000);
+                });
+            }
+
+            if (thisRequestId !== playRequestId) return;
+
+            await initYouTubePlayer(item.id);
+            logDebug('YouTube playback started');
+
+        } catch (err) {
+            logDebug(`YouTube player error: ${err.message}, falling back to proxy...`);
+            // Fall back to proxy method
+            useYouTubePlayer = false;
+            await playSongWithProxy(item, thisRequestId);
+        }
+    } else {
+        await playSongWithProxy(item, thisRequestId);
+    }
+}
+
+async function playSongWithProxy(item, thisRequestId) {
+    // Reset player state completely
+    youtubePlayerContainer.style.display = 'none';
+    if (ytPlayer) {
+        ytPlayer.stopVideo();
+    }
+    player.style.display = 'block';
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
 
     try {
         const streamUrl = await API.getStreamUrl(item.id);
@@ -632,8 +747,8 @@ async function playSong(index) {
     } catch (err) {
         logDebug(`Error details: ${err.message}`);
         console.error('Playback Context Error:', err);
-        alert(`Playback failed: ${err.message}\n\nThis is usually related to YouTube restrictions or network issues. Try searching for a different version or try again later.`);
-
+        alert(`Playback failed: ${err.message}\n\nThis is usually related to YouTube restrictions. The YouTube embed player will be used next time.`);
+        useYouTubePlayer = true; // Switch back to YouTube player
         setTimeout(playNext, 3000);
     }
 }
