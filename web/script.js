@@ -8,6 +8,7 @@ const loader = document.getElementById('search-loader');
 const playlistItems = document.getElementById('playlist-items');
 const nowPlayingTitle = document.getElementById('now-playing-title');
 const karaokeKnob = document.getElementById('karaoke-knob');
+const karaokeModeSelector = document.getElementById('karaoke-mode-selector');
 const labelGuide = document.getElementById('label-guide');
 const labelSinging = document.getElementById('label-singing');
 
@@ -17,6 +18,8 @@ const importBtn = document.getElementById('import-playlist-btn');
 const skipBtn = document.getElementById('skip-btn');
 const volumeSlider = document.getElementById('volume-slider');
 const clearPlaylistBtn = document.getElementById('clear-playlist-btn');
+const playerModeBtn = document.getElementById('player-mode-btn');
+const playerModeText = document.getElementById('player-mode-text');
 
 let playlist = [];
 let currentIndex = -1;
@@ -26,6 +29,40 @@ let playRequestId = 0;
 let ytPlayer = null;
 let ytPlayerReady = false;
 let useYouTubePlayer = true; // Use YouTube embed by default (more reliable)
+
+// Player mode toggle handler
+if (playerModeBtn) {
+    playerModeBtn.addEventListener('click', () => {
+        useYouTubePlayer = !useYouTubePlayer;
+        updatePlayerModeUI();
+        
+        // If currently playing, restart with new mode
+        if (currentIndex >= 0 && playlist.length > 0) {
+            playSong(currentIndex);
+        }
+    });
+}
+
+function updatePlayerModeUI() {
+    if (playerModeText) {
+        playerModeText.textContent = useYouTubePlayer ? 'YouTube' : 'Karaoke';
+    }
+    if (playerModeBtn) {
+        const icon = playerModeBtn.querySelector('i');
+        if (icon) {
+            icon.className = useYouTubePlayer ? 'fab fa-youtube' : 'fas fa-microphone';
+        }
+    }
+    // Show/hide karaoke mode toggle based on player mode
+    if (karaokeModeSelector) {
+        karaokeModeSelector.style.opacity = useYouTubePlayer ? '0.5' : '1';
+        karaokeModeSelector.style.pointerEvents = useYouTubePlayer ? 'none' : 'auto';
+        karaokeModeSelector.title = useYouTubePlayer ? 'Switch to Karaoke mode to enable vocal removal' : 'Toggle vocal removal';
+    }
+}
+
+// Initialize UI state
+updatePlayerModeUI();
 
 // YouTube API callback - called automatically when API is ready
 window.onYouTubeIframeAPIReady = function() {
