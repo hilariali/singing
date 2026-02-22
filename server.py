@@ -1414,21 +1414,46 @@ def proxy_stream():
     print(f"--- [PROXY] Streaming: {video_id} ---")
 
     try:
-        # Create a fresh yt-dlp instance with cookies support
-        opts = {
-            'format': '18/22/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4]/best',
-            'quiet': True,
-            'no_warnings': True,
-            'nocheckcertificate': True,
-            'youtube_include_dash_manifest': False,
-            'youtube_include_hls_manifest': False,
-            'noplaylist': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}},
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        }
+        # Try multiple player clients in case one is blocked
+        player_clients = [
+            ['android_embedded'],
+            ['android'],
+            ['web'],
+            ['ios'],
+        ]
         
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = None
+        last_error = None
+        
+        for clients in player_clients:
+            try:
+                opts = {
+                    'format': '18/22/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4]/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'nocheckcertificate': True,
+                    'youtube_include_dash_manifest': False,
+                    'youtube_include_hls_manifest': False,
+                    'noplaylist': True,
+                    'extractor_args': {'youtube': {'player_client': clients}},
+                    'user_agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+                    'socket_timeout': 30,
+                }
+                
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    if info and info.get('formats'):
+                        print(f"[PROXY] Success with client: {clients}")
+                        break
+            except Exception as e:
+                last_error = e
+                print(f"[PROXY] Client {clients} failed: {str(e)[:100]}")
+                continue
+        
+        if not info or not info.get('formats'):
+            error_msg = str(last_error) if last_error else "Could not extract video info"
+            print(f"[PROXY ERROR] All clients failed: {error_msg}")
+            return f"Video extraction failed: {error_msg[:200]}", 500
 
             # Select format 18 or 22 (legacy combined)
             best_f = None
