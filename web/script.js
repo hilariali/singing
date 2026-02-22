@@ -150,7 +150,7 @@ async function saveLyricsFromModal() {
     const lyrics = editLyrics?.value?.trim() || '';
     
     if (!lyrics) {
-        alert('請輸入歌詞');
+        alert('Please enter lyrics');
         return;
     }
     
@@ -178,11 +178,11 @@ async function saveLyricsFromModal() {
             closeLyricsModal();
             logDebug('Lyrics saved to database');
         } else {
-            alert('儲存失敗: ' + (data.error || 'Unknown error'));
+            alert('Save failed: ' + (data.error || 'Unknown error'));
         }
     } catch (err) {
         console.error('Save lyrics error:', err);
-        alert('儲存失敗: ' + err.message);
+        alert('Save failed: ' + err.message);
     }
 }
 
@@ -222,11 +222,11 @@ function updateSourceLabel(source) {
         if (source.includes('cached')) {
             label = '📦 ' + source;
         } else if (source === 'database' || source === 'manual') {
-            label = '💾 已儲存';
+            label = '💾 Saved';
         } else if (source.includes('netease')) {
-            label = '🎵 網易';
+            label = '🎵 NetEase';
         } else if (source.includes('kugou')) {
-            label = '🎵 酷狗';
+            label = '🎵 Kugou';
         } else if (source.includes('lrclib')) {
             label = '🎵 LRCLIB';
         } else if (source.includes('lyrics.ovh')) {
@@ -240,7 +240,7 @@ function updateSourceLabel(source) {
 
 // Load lyrics for a video (simplified - returns plain text)
 async function loadLyrics(videoId, videoTitle = '') {
-    if (lyricsContent) lyricsContent.innerHTML = '<div class="lyrics-loading">搜尋歌詞中...</div>';
+    if (lyricsContent) lyricsContent.innerHTML = '<div class="lyrics-loading">Searching for lyrics...</div>';
     currentLyricsText = '';
     currentVideoId = videoId;
 
@@ -258,8 +258,8 @@ async function loadLyrics(videoId, videoTitle = '') {
         if (!data.available || !data.lyrics) {
             if (lyricsContent) lyricsContent.innerHTML = `
                 <p class="lyrics-unavailable">
-                    🎵 找不到此歌曲的歌詞<br>
-                    <small>點擊「編輯」按鈕手動新增歌詞</small>
+                    🎵 No lyrics found for this song<br>
+                    <small>Click "Edit" to add lyrics manually</small>
                 </p>`;
             return;
         }
@@ -271,7 +271,7 @@ async function loadLyrics(videoId, videoTitle = '') {
 
     } catch (err) {
         console.error('Failed to load lyrics:', err);
-        if (lyricsContent) lyricsContent.innerHTML = '<p class="lyrics-unavailable">載入歌詞失敗</p>';
+        if (lyricsContent) lyricsContent.innerHTML = '<p class="lyrics-unavailable">Failed to load lyrics</p>';
     }
 }
 
@@ -280,7 +280,7 @@ function renderLyrics() {
     if (!lyricsContent) return;
     
     if (!currentLyricsText) {
-        lyricsContent.innerHTML = '<p class="lyrics-placeholder">🎤 歌詞將在播放時顯示</p>';
+        lyricsContent.innerHTML = '<p class="lyrics-placeholder">🎤 Lyrics will appear when playing</p>';
         return;
     }
 
@@ -294,7 +294,7 @@ function clearLyrics() {
     currentVideoId = '';
     currentArtist = '';
     currentTrack = '';
-    if (lyricsContent) lyricsContent.innerHTML = '<p class="lyrics-placeholder">🎤 歌詞將在播放時顯示</p>';
+    if (lyricsContent) lyricsContent.innerHTML = '<p class="lyrics-placeholder">🎤 Lyrics will appear when playing</p>';
     if (lyricsSource) lyricsSource.textContent = '';
 }
 
@@ -372,7 +372,7 @@ searchBtn.addEventListener('click', async () => {
                 addToPlaylist(videoInfo);
                 searchInput.value = '';
             } else {
-                alert('無法獲取影片資訊，請檢查網址是否正確。');
+                alert('Unable to get video info. Please check the URL.');
             }
         } else {
             // Search keyword
@@ -380,12 +380,12 @@ searchBtn.addEventListener('click', async () => {
             if (results && results.length > 0) {
                 displayResults(results);
             } else {
-                alert('找不到相關結果，請換個關鍵字搜尋。');
+                alert('No results found. Try different keywords.');
             }
         }
     } catch (err) {
         console.error('API call error:', err);
-        alert('搜尋發生系統錯誤：' + err.message);
+        alert('Search error: ' + err.message);
     } finally {
         loader.style.display = 'none';
         searchBtn.disabled = false;
@@ -426,12 +426,12 @@ skipBtn.addEventListener('click', () => {
 
 // Clear playlist
 clearPlaylistBtn.addEventListener('click', () => {
-    if (confirm('確定要清空待播清單嗎？')) {
+    if (confirm('Are you sure you want to clear the playlist?')) {
         playlist = [];
         currentIndex = -1;
         player.pause();
         player.removeAttribute('src');
-        nowPlayingTitle.innerText = '尚未播放歌曲';
+        nowPlayingTitle.innerText = 'No song playing';
         clearLyrics();
         renderPlaylist();
     }
@@ -470,7 +470,7 @@ function addToPlaylist(item) {
 
 function renderPlaylist() {
     if (playlist.length === 0) {
-        playlistItems.innerHTML = '<p style="text-align: center; color: rgba(255,255,255,0.3); padding-top: 20px;">目前沒有待播歌曲</p>';
+        playlistItems.innerHTML = '<p style="text-align: center; color: var(--text-secondary); padding-top: 20px;">No songs in playlist</p>';
         return;
     }
 
@@ -487,7 +487,7 @@ function renderPlaylist() {
       <div class="info">
         <div class="title">${item.title}</div>
       </div>
-      <div class="delete-btn" title="從清單移除">
+      <div class="delete-btn" title="Remove from playlist">
         <i class="fas fa-times"></i>
       </div>
     `;
@@ -570,7 +570,7 @@ function removeFromPlaylist(index) {
         currentIndex = -1;
         player.pause();
         player.removeAttribute('src');
-        nowPlayingTitle.innerText = '尚未播放歌曲';
+        nowPlayingTitle.innerText = 'No song playing';
     } else {
         if (isPlaying) {
             // If we deleted the playing song, play the same index (now next song)
@@ -589,7 +589,7 @@ async function playSong(index) {
     const thisRequestId = ++playRequestId;
     currentIndex = index;
     const item = playlist[index];
-    nowPlayingTitle.innerText = `正在播放：${item.title}`;
+    nowPlayingTitle.innerText = `Now Playing: ${item.title}`;
     renderPlaylist();
 
     // Reset player state completely
@@ -600,17 +600,17 @@ async function playSong(index) {
     // Load lyrics for this video (pass title to speed up search)
     loadLyrics(item.id, item.title);
 
-    logDebug(`正在解析歌曲: ${item.title}`);
+    logDebug(`Loading song: ${item.title}`);
 
     try {
         const streamUrl = await API.getStreamUrl(item.id);
         if (thisRequestId !== playRequestId) return; // Ignore if another song was requested while resolving
 
         if (!streamUrl) {
-            throw new Error('後端回傳網址為空');
+            throw new Error('Server returned empty URL');
         }
 
-        logDebug(`取得網址: ${streamUrl.substring(0, 50)}...`);
+        logDebug(`Got URL: ${streamUrl.substring(0, 50)}...`);
 
         player.src = streamUrl;
 
@@ -620,19 +620,19 @@ async function playSong(index) {
 
         await player.play().catch(e => {
             if (e.name === 'AbortError') {
-                logDebug(`播放被中止 (AbortError) - 可能有新的載入請求，忽略此錯誤。`);
+                logDebug(`Playback aborted (AbortError) - new load request, ignoring.`);
                 return;
             }
-            logDebug(`播放啟動失敗: ${e.name}`);
+            logDebug(`Playback failed: ${e.name}`);
             throw e;
         });
 
-        logDebug(`開始成功播放`);
+        logDebug(`Playback started successfully`);
 
     } catch (err) {
-        logDebug(`錯誤詳細: ${err.message}`);
+        logDebug(`Error details: ${err.message}`);
         console.error('Playback Context Error:', err);
-        alert(`播放失敗：${err.message}\n\n這通常與 YouTube 限制或網路狀況有關。請嘗試搜尋其他版本的影片或稍後再試。`);
+        alert(`Playback failed: ${err.message}\n\nThis is usually related to YouTube restrictions or network issues. Try searching for a different version or try again later.`);
 
         setTimeout(playNext, 3000);
     }
@@ -666,18 +666,18 @@ player.onplay = () => {
 
 player.onerror = () => {
     const err = player.error;
-    let msg = '影片播放發生錯誤。';
+    let msg = 'Video playback error.';
     let codeName = 'UNKNOWN';
     if (err) {
         switch (err.code) {
-            case 1: msg += ' (使用者中止)'; codeName = 'MEDIA_ERR_ABORTED'; break;
-            case 2: msg += ' (網路錯誤)'; codeName = 'MEDIA_ERR_NETWORK'; break;
-            case 3: msg += ' (解碼錯誤 - 瀏覽器可能不支援此格式)'; codeName = 'MEDIA_ERR_DECODE'; break;
-            case 4: msg += ' (不支援的來源或格式)'; codeName = 'MEDIA_ERR_SRC_NOT_SUPPORTED'; break;
+            case 1: msg += ' (User aborted)'; codeName = 'MEDIA_ERR_ABORTED'; break;
+            case 2: msg += ' (Network error)'; codeName = 'MEDIA_ERR_NETWORK'; break;
+            case 3: msg += ' (Decode error - browser may not support this format)'; codeName = 'MEDIA_ERR_DECODE'; break;
+            case 4: msg += ' (Unsupported source or format)'; codeName = 'MEDIA_ERR_SRC_NOT_SUPPORTED'; break;
         }
     }
-    logDebug(`播放器報錯: [${codeName}] ${msg}`);
-    alert(`播放失敗 (錯誤碼 ${err ? err.code : '?'}): ${msg}\n\n這通常與網路環境或 YouTube 的限制有關。請嘗試搜尋其他影片來源。`);
+    logDebug(`Player error: [${codeName}] ${msg}`);
+    alert(`Playback failed (Error code ${err ? err.code : '?'}): ${msg}\n\nThis is usually related to network or YouTube restrictions. Try searching for a different video.`);
 };
 
 const updateModeUI = (isSinging) => {
@@ -722,13 +722,13 @@ const formatDateTime = () => {
 };
 
 exportBtn.addEventListener('click', () => {
-    if (playlist.length === 0) return alert('目前沒有待播歌曲可以匯出。');
+    if (playlist.length === 0) return alert('No songs in playlist to export.');
     const data = JSON.stringify(playlist, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `karaoke-shen_playlist_${formatDateTime()}.json`;
+    a.download = `karaoke-master_playlist_${formatDateTime()}.json`;
     a.click();
     URL.revokeObjectURL(url);
 });
@@ -753,13 +753,13 @@ importBtn.addEventListener('click', () => {
                     if (currentIndex === -1 && playlist.length > 0) {
                         playSong(0);
                     }
-                    alert('匯入成功！已加入 ' + imported.length + ' 首歌曲。');
+                    alert('Import successful! Added ' + imported.length + ' songs.');
                 } else {
-                    throw new Error("匯入內容不是有效的清單格式（必須是陣列）");
+                    throw new Error("Import content is not a valid playlist format (must be an array)");
                 }
             } catch (err) {
                 console.error("Import error details:", err);
-                alert('匯入失敗：\n' + err.message + '\n\n這可能是檔案內容毀損或格式不相容。');
+                alert('Import failed:\n' + err.message + '\n\nThe file may be corrupted or incompatible.');
             }
         };
         // Explicitly use UTF-8 just in case

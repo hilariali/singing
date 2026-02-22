@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>卡拉OK神歡唱系統</title>
+  <title>Karaoke Master - Sing Your Heart Out!</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <!-- Eel.js is only needed for desktop mode, web mode uses REST API -->
@@ -32,20 +32,20 @@
 <body>
   <div id="app" class="fade-in">
     <header>
-      <h1>卡拉OK神歡唱系統</h1>
-      <p>成為卡拉OK神，不再只是夢想！</p>
+      <h1>🎤 Karaoke Master</h1>
+      <p>Sing your favorite songs with lyrics!</p>
     </header>
 
     <div class="search-container">
-      <input type="text" id="search-input" placeholder="輸入搜尋關鍵字或 YouTube 網址...">
+      <input type="text" id="search-input" placeholder="Search for songs or paste YouTube URL...">
       <div class="loader" id="search-loader"></div>
       <button class="btn" id="search-btn">
-        <i class="fas fa-search"></i> 搜尋
+        <i class="fas fa-search"></i> Search
       </button>
     </div>
 
     <div class="results-section" id="results-section">
-      <h3>搜尋結果</h3>
+      <h3>Search Results</h3>
       <div class="results-grid" id="results-grid">
         <!-- Results will be injected here -->
       </div>
@@ -61,17 +61,17 @@
         <!-- Lyrics Display -->
         <div id="lyrics-container">
           <div id="lyrics-toggle">
-            <button class="btn btn-ghost btn-small" id="lyrics-btn" title="顯示/隱藏歌詞">
-              <i class="fas fa-closed-captioning"></i> 歌詞
+            <button class="btn btn-ghost btn-small" id="lyrics-btn" title="Show/Hide Lyrics">
+              <i class="fas fa-closed-captioning"></i> Lyrics
             </button>
-            <button class="btn btn-ghost btn-small" id="edit-lyrics-btn" title="編輯/新增歌詞">
-              <i class="fas fa-edit"></i> 編輯
+            <button class="btn btn-ghost btn-small" id="edit-lyrics-btn" title="Edit/Add Lyrics">
+              <i class="fas fa-edit"></i> Edit
             </button>
             <span id="lyrics-source" class="lyrics-source-label"></span>
           </div>
           <div id="lyrics-display">
             <div id="lyrics-content">
-              <p class="lyrics-placeholder">🎤 歌詞將在播放時顯示</p>
+              <p class="lyrics-placeholder">🎤 Lyrics will appear when playing</p>
             </div>
           </div>
         </div>
@@ -80,27 +80,27 @@
         <div id="lyrics-modal" class="modal hidden">
           <div class="modal-content">
             <div class="modal-header">
-              <h3><i class="fas fa-edit"></i> 編輯歌詞</h3>
+              <h3><i class="fas fa-edit"></i> Edit Lyrics</h3>
               <button class="modal-close" id="modal-close">&times;</button>
             </div>
             <div class="modal-body">
               <div class="form-group">
-                <label>歌手</label>
-                <input type="text" id="edit-artist" placeholder="歌手名稱">
+                <label>Artist</label>
+                <input type="text" id="edit-artist" placeholder="Artist name">
               </div>
               <div class="form-group">
-                <label>歌曲</label>
-                <input type="text" id="edit-track" placeholder="歌曲名稱">
+                <label>Track</label>
+                <input type="text" id="edit-track" placeholder="Song title">
               </div>
               <div class="form-group">
-                <label>歌詞 <small>(每行一句)</small></label>
-                <textarea id="edit-lyrics" rows="15" placeholder="在此輸入或貼上歌詞..."></textarea>
+                <label>Lyrics <small>(one line per row)</small></label>
+                <textarea id="edit-lyrics" rows="15" placeholder="Enter or paste lyrics here..."></textarea>
               </div>
             </div>
             <div class="modal-footer">
-              <button class="btn btn-ghost" id="modal-cancel">取消</button>
+              <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
               <button class="btn btn-primary" id="modal-save">
-                <i class="fas fa-save"></i> 儲存到資料庫
+                <i class="fas fa-save"></i> Save to Database
               </button>
             </div>
           </div>
@@ -108,9 +108,9 @@
 
         <div class="controls-row">
           <div class="song-info">
-            <h2 id="now-playing-title">尚未播放歌曲</h2>
-            <button class="btn btn-small" id="skip-btn" title="下一首">
-              <i class="fas fa-step-forward"></i> 切歌
+            <h2 id="now-playing-title">No song playing</h2>
+            <button class="btn btn-small" id="skip-btn" title="Next song">
+              <i class="fas fa-step-forward"></i> Skip
             </button>
           </div>
 
@@ -121,11 +121,11 @@
             </div>
 
             <div class="mode-selector">
-              <span class="mode-label active" id="label-guide">導唱</span>
+              <span class="mode-label active" id="label-guide">Guide</span>
               <div class="knob-switch" id="karaoke-knob">
                 <div class="knob-inner"></div>
               </div>
-              <span class="mode-label" id="label-singing">歡唱</span>
+              <span class="mode-label" id="label-singing">Sing</span>
             </div>
           </div>
         </div>
@@ -133,22 +133,22 @@
 
       <div class="playlist-section">
         <div class="playlist-header">
-          <span>待播清單</span>
+          <span>Playlist</span>
           <div class="playlist-actions">
-            <button class="btn btn-ghost btn-icon-only" id="export-playlist-btn" title="匯出清單">
-              <i class="fas fa-file-export"></i> 匯出
+            <button class="btn btn-ghost btn-icon-only" id="export-playlist-btn" title="Export playlist">
+              <i class="fas fa-file-export"></i> Export
             </button>
-            <button class="btn btn-ghost btn-icon-only" id="import-playlist-btn" title="匯入清單">
-              <i class="fas fa-file-import"></i> 匯入
+            <button class="btn btn-ghost btn-icon-only" id="import-playlist-btn" title="Import playlist">
+              <i class="fas fa-file-import"></i> Import
             </button>
-            <button class="btn btn-ghost" id="clear-playlist-btn" title="清空清單">
-              <i class="fas fa-trash-alt"></i> 清空
+            <button class="btn btn-ghost" id="clear-playlist-btn" title="Clear playlist">
+              <i class="fas fa-trash-alt"></i> Clear
             </button>
           </div>
         </div>
         <div id="playlist-items">
           <!-- Playlist items will be injected here -->
-          <p style="text-align: center; color: rgba(255,255,255,0.3); padding-top: 20px;">目前沒有待播歌曲</p>
+          <p style="text-align: center; color: var(--text-secondary); padding-top: 20px;">No songs in playlist</p>
         </div>
       </div>
     </div>
