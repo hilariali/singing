@@ -224,12 +224,36 @@ def get_video_info():
 
 @app.route('/api/stream_url', methods=['GET'])
 def get_stream_url():
-    """Get the local proxy URL for a YouTube video."""
+    """Get the proxy URL for a YouTube video.
+    On Render, yt-dlp is bot-detected so we try Piped/Invidious directly.
+    We signal proxy_unavailable so the client can fall back to YouTube embed quickly.
+    """
     video_id = request.args.get('id', '').strip()
     if not video_id:
         return jsonify({'error': 'Missing video ID'}), 400
 
-    # Return a local URL that our proxy will handle
+    if IS_RENDER:
+        # Try to resolve a direct stream URL from Piped/Invidious right here
+        # so the client gets a usable URL without an extra round-trip
+        piped = get_piped_stream(video_id)
+        if piped and piped.get('url'):
+            stream_url = piped['url']
+            if piped.get('type') == 'hls':
+                print(f"[STREAM_URL] Render: returning HLS URL via Piped")
+                return jsonify({'url': stream_url, 'direct': True})
+            print(f"[STREAM_URL] Render: returning direct Piped stream URL")
+            return jsonify({'url': stream_url, 'direct': True})
+
+        inv = get_invidious_stream(video_id)
+        if inv and inv.get('url'):
+            print(f"[STREAM_URL] Render: returning direct Invidious stream URL")
+            return jsonify({'url': inv['url'], 'direct': True})
+
+        # No external stream found – tell the client to use YouTube embed
+        print(f"[STREAM_URL] Render: no stream found, signalling proxy_unavailable")
+        return jsonify({'error': 'proxy_unavailable', 'proxy_unavailable': True}), 503
+
+    # Local/non-Render: use the server-side proxy (yt-dlp works fine)
     return jsonify({'url': f"/proxy_stream?v={video_id}"})
 
 
@@ -264,8 +288,13 @@ def get_subtitles():
         # If title provided, use it directly (faster)
         if video_title:
             print(f"[LYRICS] Using provided title: {video_title}")
+        elif IS_RENDER:
+            # On Render, yt-dlp is bot-detected – skip it.
+            # The client always passes ?title=... so this is a last-resort guard.
+            print(f"[LYRICS] Render: no title provided and yt-dlp disabled, using video_id as fallback key")
+            video_title = video_id  # triggers extract_song_info with an ID, which returns nothing useful but won't crash
         else:
-            # Get video info via yt-dlp (slower)
+            # Get video info via yt-dlp (slower, local only)
             try:
                 with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl:
                     info = ydl.extract_info(url, download=False)
@@ -1742,7 +1771,7 @@ def proxy_stream():
                 
                 return Response(generate(), status=req.status_code, headers=response_headers)
         
-        # All methods failed
+        # All methods failed - return proxy_unavailable so client falls back to YouTube embed gracefully
         error_msg = str(last_error) if last_error else "Unknown error"
         if 'Sign in to confirm' in error_msg or 'not a bot' in error_msg:
             final_msg = "YouTube bot detection - please use YouTube mode instead"
@@ -1750,9 +1779,9 @@ def proxy_stream():
             final_msg = "YouTube blocked this request (403 Forbidden) - please use YouTube mode"
         else:
             final_msg = f"Video streaming unavailable: {error_msg[:100]}"
-        
+
         print(f"[PROXY ERROR] {final_msg}")
-        return jsonify({'error': final_msg}), 500
+        return jsonify({'error': final_msg, 'proxy_unavailable': True}), 503
 
     except Exception as e:
         import traceback

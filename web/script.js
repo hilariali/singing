@@ -163,11 +163,16 @@ const API = {
     getStreamUrl: async (videoId) => {
         if (API.isWebMode()) {
             const response = await fetch(`/api/stream_url?id=${encodeURIComponent(videoId)}`);
+            const data = await response.json();
+            // Server signals that proxy is not available (e.g. on Render)
+            if (data.proxy_unavailable) {
+                const err = new Error('proxy_unavailable');
+                err.proxy_unavailable = true;
+                throw err;
+            }
             if (!response.ok) {
-                const data = await response.json();
                 throw new Error(data.error || 'Failed to get stream URL');
             }
-            const data = await response.json();
             return data.url;
         } else {
             return eel.get_stream_url(videoId)();
@@ -785,29 +790,40 @@ async function playSongWithProxy(item, thisRequestId) {
         logDebug(`Playback started successfully`);
 
     } catch (err) {
-        logDebug(`Proxy failed: ${err.message} - switching to YouTube embed`);
-        console.error('Proxy Error:', err);
-        
+        // If server told us proxy is unavailable, switch silently to YouTube embed
+        const isProxyUnavailable = err.proxy_unavailable ||
+            err.message === 'proxy_unavailable' ||
+            err.message.includes('proxy_unavailable') ||
+            err.message.includes('503');
+
+        if (isProxyUnavailable) {
+            logDebug('Proxy unavailable on server - switching to YouTube embed silently');
+        } else {
+            logDebug(`Proxy failed: ${err.message} - switching to YouTube embed`);
+            console.error('Proxy Error:', err);
+        }
+
         // Automatically switch back to YouTube player and retry
         useYouTubePlayer = true;
         updatePlayerModeUI();
-        
-        // Show a non-blocking notification
-        const notification = document.createElement('div');
-        notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#ef4444;color:white;padding:15px 20px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:10000;max-width:300px;';
-        notification.innerHTML = `
-            <strong>⚠️ Karaoke Mode Unavailable</strong><br>
-            <small>Switched to YouTube mode. Vocal removal won't work due to streaming restrictions.</small>
-        `;
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            notification.style.transition = 'opacity 0.5s';
-            notification.style.opacity = '0';
-            setTimeout(() => notification.remove(), 500);
-        }, 5000);
-        
-        // Retry with YouTube embed immediately
+
+        // Show a non-blocking notification only for unexpected failures
+        if (!isProxyUnavailable) {
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#ef4444;color:white;padding:15px 20px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:10000;max-width:300px;';
+            notification.innerHTML = `
+                <strong>&#9888;&#65039; Karaoke Mode Unavailable</strong><br>
+                <small>Switched to YouTube mode. Vocal removal won't work due to streaming restrictions.</small>
+            `;
+            document.body.appendChild(notification);
+            setTimeout(() => {
+                notification.style.transition = 'opacity 0.5s';
+                notification.style.opacity = '0';
+                setTimeout(() => notification.remove(), 500);
+            }, 5000);
+        }
+
+        // Retry with YouTube embed
         if (thisRequestId === playRequestId) {
             await playSong(currentIndex);
         }
@@ -853,7 +869,7 @@ player.onerror = () => {
         }
     }
     logDebug(`Player error: [${codeName}] ${msg}`);
-    alert(`Playback failed (Error code ${err ? err.code : '?'}): ${msg}\n\nThis is usually related to network or YouTube restrictions. Try searching for a different video.`);
+    // Do NOT alert here - the playSongWithProxy catch block handles fallback and user messaging.
 };
 
 const updateModeUI = (isSinging) => {
