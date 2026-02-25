@@ -25,6 +25,11 @@ if os.path.exists('/data'):
     DATA_DIR = '/data'
 DB_PATH = os.path.join(DATA_DIR, 'karaoke_lyrics.db')
 
+# Detect Render cloud environment (yt-dlp is bot-detected there; skip it for streaming)
+IS_RENDER = bool(os.environ.get('RENDER'))
+if IS_RENDER:
+    print('[CONFIG] Running on Render - yt-dlp streaming disabled, using Piped/Invidious fallback')
+
 def init_db():
     """Initialize the SQLite database for caching lyrics."""
     conn = sqlite3.connect(DB_PATH)
@@ -303,18 +308,31 @@ def get_subtitles():
         # Try to fetch from external sources
         lyrics_text = None
         source = None
-        
-        # Check if Chinese song
-        is_chinese = contains_chinese(video_title)
-        
-        if is_chinese:
-            result = fetch_chinese_lyrics(artist, track, video_title)
-            if result:
-                lyrics_text = result['lyrics']
-                source = result['source']
-                artist = result.get('artist', artist)
-                track = result.get('track', track)
-        
+
+        # Step 1: Try LRCLIB first for ALL songs - global, fast, covers Chinese & English
+        try:
+            lrclib_result = search_lyrics_lrclib_simple(artist, track, video_title)
+            if lrclib_result and lrclib_result.get('lyrics'):
+                lyrics_text = lrclib_result['lyrics']
+                source = lrclib_result['source']
+                artist = lrclib_result.get('artist', artist)
+                track = lrclib_result.get('track', track)
+                print(f'[LYRICS] LRCLIB hit: {artist} - {track}')
+        except Exception as e:
+            print(f'[LYRICS] LRCLIB failed: {e}')
+
+        # Step 2: If LRCLIB missed, use language-specific sources (fetched in parallel)
+        if not lyrics_text:
+            is_chinese = contains_chinese(video_title)
+
+            if is_chinese:
+                result = fetch_chinese_lyrics_parallel(artist, track, video_title)
+                if result:
+                    lyrics_text = result['lyrics']
+                    source = result['source']
+                    artist = result.get('artist', artist)
+                    track = result.get('track', track)
+
         if not lyrics_text:
             result = fetch_english_lyrics(artist, track, video_title)
             if result:
@@ -400,49 +418,58 @@ def save_lyrics():
 
 
 def fetch_chinese_lyrics(artist, track, video_title):
-    """Fetch Chinese lyrics from multiple sources, return plain text."""
-    print(f"[CHINESE] Searching: artist='{artist}', track='{track}'")
-    
-    try:
-        # Try NetEase first (most comprehensive Chinese library)
-        result = search_lyrics_netease(artist, track)
-        if result and result.get('lyrics'):
-            return result
-    except Exception as e:
-        print(f"[CHINESE] NetEase error: {e}")
-    
-    try:
-        # Try Genius (works for many Chinese songs too)
-        result = search_lyrics_genius(artist, track)
-        if result and result.get('lyrics'):
-            return result
-    except Exception as e:
-        print(f"[CHINESE] Genius error: {e}")
-    
-    try:
-        # Try Kugou
-        result = search_lyrics_kugou(artist, track)
-        if result and result.get('lyrics'):
-            return result
-    except Exception as e:
-        print(f"[CHINESE] Kugou error: {e}")
-    
-    # Try with just track name if artist was provided
-    if artist:
+    """Fetch Chinese lyrics from multiple sources sequentially (kept for compatibility)."""
+    return fetch_chinese_lyrics_parallel(artist, track, video_title)
+
+
+def fetch_chinese_lyrics_parallel(artist, track, video_title):
+    """Fetch Chinese lyrics from multiple sources IN PARALLEL to avoid timeouts."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    print(f"[CHINESE] Parallel search: artist='{artist}', track='{track}'")
+
+    def try_netease():
         try:
-            result = search_lyrics_netease('', track)
-            if result and result.get('lyrics'):
-                return result
-        except:
-            pass
-        
+            return search_lyrics_netease(artist, track)
+        except Exception as e:
+            print(f"[CHINESE] NetEase error: {e}")
+            return None
+
+    def try_netease_track_only():
+        if not artist:
+            return None
         try:
-            result = search_lyrics_genius('', track)
-            if result and result.get('lyrics'):
-                return result
-        except:
-            pass
-    
+            return search_lyrics_netease('', track)
+        except Exception as e:
+            print(f"[CHINESE] NetEase (track-only) error: {e}")
+            return None
+
+    def try_genius():
+        try:
+            return search_lyrics_genius(artist, track)
+        except Exception as e:
+            print(f"[CHINESE] Genius error: {e}")
+            return None
+
+    def try_kugou():
+        try:
+            return search_lyrics_kugou(artist, track)
+        except Exception as e:
+            print(f"[CHINESE] Kugou error: {e}")
+            return None
+
+    # Run all sources in parallel; return the first successful result
+    tasks = [try_netease, try_genius, try_kugou, try_netease_track_only]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(fn): fn.__name__ for fn in tasks}
+        for future in as_completed(futures, timeout=12):
+            try:
+                result = future.result()
+                if result and result.get('lyrics'):
+                    print(f"[CHINESE] Got result from {futures[future]}")
+                    return result
+            except Exception as e:
+                print(f"[CHINESE] Future {futures[future]} raised: {e}")
+
     return None
 
 
@@ -654,7 +681,7 @@ def search_lyrics_netease(artist, track):
         }
         
         print(f"[NETEASE] Searching: '{search_term}'")
-        response = requests.post(search_url, data=params, headers=headers, timeout=8)
+        response = requests.post(search_url, data=params, headers=headers, timeout=5)
         
         if response.status_code != 200:
             print(f"[NETEASE] Search failed: {response.status_code}")
@@ -681,8 +708,8 @@ def search_lyrics_netease(artist, track):
             print(f"[NETEASE] No songs found")
             return None
         
-        # Try to find lyrics for each song
-        for song in songs[:5]:
+        # Try to find lyrics for each song (limit to 3 to keep total time down)
+        for song in songs[:3]:
             song_id = song.get('id')
             song_name = song.get('name', '')
             artists = song.get('artists', [])
@@ -690,7 +717,7 @@ def search_lyrics_netease(artist, track):
             
             # Get lyrics using a different endpoint
             lyrics_url = f"https://music.163.com/api/song/lyric?id={song_id}&lv=1&kv=1&tv=-1"
-            lyrics_response = requests.get(lyrics_url, headers=headers, timeout=5)
+            lyrics_response = requests.get(lyrics_url, headers=headers, timeout=4)
             
             if lyrics_response.status_code != 200:
                 continue
@@ -988,7 +1015,7 @@ def search_lyrics_lrclib_simple(artist, track, video_title):
         if artist:
             search_url += f"&artist_name={requests.utils.quote(artist)}"
         
-        response = requests.get(search_url, headers=headers, timeout=10)
+        response = requests.get(search_url, headers=headers, timeout=5)
         
         if response.status_code == 200:
             results = response.json()
@@ -1410,6 +1437,8 @@ PIPED_INSTANCES = [
     'https://api.piped.yt',
     'https://pipedapi.darkness.services',
     'https://pipedapi.drgns.space',
+    'https://piped-api.garudalinux.org',
+    'https://watchapi.whatever.social',
 ]
 
 # List of Invidious instances (another alternative)
@@ -1418,6 +1447,8 @@ INVIDIOUS_INSTANCES = [
     'https://inv.nadeko.net',
     'https://invidious.private.coffee',
     'https://invidious.protokolla.fi',
+    'https://iv.datura.network',
+    'https://invidious.perennialte.ch',
 ]
 
 
@@ -1531,47 +1562,48 @@ def proxy_stream():
     print(f"--- [PROXY] Streaming: {video_id} ---")
 
     try:
-        # Method 1: Try yt-dlp first (currently working with android client)
         url = f"https://www.youtube.com/watch?v={video_id}"
-        
-        player_clients = [
-            ['android'],
-            ['ios'],
-            ['web'],
-            ['mweb'],
-        ]
-        
         info = None
         last_error = None
-        
-        for clients in player_clients:
-            try:
-                opts = {
-                    'format': '18/22/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4]/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'nocheckcertificate': True,
-                    'youtube_include_dash_manifest': False,
-                    'youtube_include_hls_manifest': False,
-                    'noplaylist': True,
-                    'extractor_args': {'youtube': {'player_client': clients}},
-                    'socket_timeout': 10,
-                }
-                
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(url, download=False)
-                    if info and info.get('formats'):
-                        print(f"[PROXY] yt-dlp success with client: {clients}")
+
+        # Method 1: Try yt-dlp (skip on Render - YouTube bot-detects cloud IPs)
+        if not IS_RENDER:
+            player_clients = [
+                ['android'],
+                ['ios'],
+                ['web'],
+                ['mweb'],
+            ]
+
+            for clients in player_clients:
+                try:
+                    opts = {
+                        'format': '18/22/best[ext=mp4][vcodec^=avc1][acodec^=mp4a]/best[ext=mp4]/best',
+                        'quiet': True,
+                        'no_warnings': True,
+                        'nocheckcertificate': True,
+                        'youtube_include_dash_manifest': False,
+                        'youtube_include_hls_manifest': False,
+                        'noplaylist': True,
+                        'extractor_args': {'youtube': {'player_client': clients}},
+                        'socket_timeout': 10,
+                    }
+
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if info and info.get('formats'):
+                            print(f"[PROXY] yt-dlp success with client: {clients}")
+                            break
+                except Exception as e:
+                    last_error = e
+                    error_str = str(e)
+                    print(f"[PROXY] yt-dlp client {clients} failed: {error_str[:80]}")
+                    if 'Sign in to confirm' in error_str or 'not a bot' in error_str:
+                        print("[PROXY] Bot detection encountered, skipping remaining clients")
                         break
-            except Exception as e:
-                last_error = e
-                error_str = str(e)
-                print(f"[PROXY] yt-dlp client {clients} failed: {error_str[:80]}")
-                # Skip other clients if bot detection or sign-in required
-                if 'Sign in to confirm' in error_str or 'not a bot' in error_str:
-                    print("[PROXY] Bot detection encountered, skipping remaining clients")
-                    break
-                continue
+                    continue
+        else:
+            print("[PROXY] Render detected - skipping yt-dlp, using Piped/Invidious directly")
         
         if info and info.get('formats'):
             # Select format 18 or 22 (legacy combined audio+video)
