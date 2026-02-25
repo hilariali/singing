@@ -785,11 +785,32 @@ async function playSongWithProxy(item, thisRequestId) {
         logDebug(`Playback started successfully`);
 
     } catch (err) {
-        logDebug(`Error details: ${err.message}`);
-        console.error('Playback Context Error:', err);
-        alert(`Playback failed: ${err.message}\n\nThis is usually related to YouTube restrictions. The YouTube embed player will be used next time.`);
-        useYouTubePlayer = true; // Switch back to YouTube player
-        setTimeout(playNext, 3000);
+        logDebug(`Proxy failed: ${err.message} - switching to YouTube embed`);
+        console.error('Proxy Error:', err);
+        
+        // Automatically switch back to YouTube player and retry
+        useYouTubePlayer = true;
+        updatePlayerModeUI();
+        
+        // Show a non-blocking notification
+        const notification = document.createElement('div');
+        notification.style.cssText = 'position:fixed;top:20px;right:20px;background:#ef4444;color:white;padding:15px 20px;border-radius:10px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:10000;max-width:300px;';
+        notification.innerHTML = `
+            <strong>⚠️ Karaoke Mode Unavailable</strong><br>
+            <small>Switched to YouTube mode. Vocal removal won't work due to streaming restrictions.</small>
+        `;
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.transition = 'opacity 0.5s';
+            notification.style.opacity = '0';
+            setTimeout(() => notification.remove(), 500);
+        }, 5000);
+        
+        // Retry with YouTube embed immediately
+        if (thisRequestId === playRequestId) {
+            await playSong(currentIndex);
+        }
     }
 }
 

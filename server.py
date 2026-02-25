@@ -1555,7 +1555,7 @@ def proxy_stream():
                     'youtube_include_hls_manifest': False,
                     'noplaylist': True,
                     'extractor_args': {'youtube': {'player_client': clients}},
-                    'socket_timeout': 15,
+                    'socket_timeout': 10,
                 }
                 
                 with yt_dlp.YoutubeDL(opts) as ydl:
@@ -1565,7 +1565,12 @@ def proxy_stream():
                         break
             except Exception as e:
                 last_error = e
-                print(f"[PROXY] yt-dlp client {clients} failed: {str(e)[:60]}")
+                error_str = str(e)
+                print(f"[PROXY] yt-dlp client {clients} failed: {error_str[:80]}")
+                # Skip other clients if bot detection or sign-in required
+                if 'Sign in to confirm' in error_str or 'not a bot' in error_str:
+                    print("[PROXY] Bot detection encountered, skipping remaining clients")
+                    break
                 continue
         
         if info and info.get('formats'):
@@ -1706,14 +1711,22 @@ def proxy_stream():
                 return Response(generate(), status=req.status_code, headers=response_headers)
         
         # All methods failed
-        print("[PROXY ERROR] All methods failed")
-        return "Video extraction failed. YouTube may be blocking this request.", 500
+        error_msg = str(last_error) if last_error else "Unknown error"
+        if 'Sign in to confirm' in error_msg or 'not a bot' in error_msg:
+            final_msg = "YouTube bot detection - please use YouTube mode instead"
+        elif '403' in error_msg or 'Forbidden' in error_msg:
+            final_msg = "YouTube blocked this request (403 Forbidden) - please use YouTube mode"
+        else:
+            final_msg = f"Video streaming unavailable: {error_msg[:100]}"
+        
+        print(f"[PROXY ERROR] {final_msg}")
+        return jsonify({'error': final_msg}), 500
 
     except Exception as e:
         import traceback
         print(f"[PROXY ERROR] {e}")
         traceback.print_exc()
-        return str(e), 500
+        return jsonify({'error': f'Proxy error: {str(e)[:100]}'}), 500
 
 
 def main():
